@@ -388,12 +388,19 @@
               $ul.append($option);
           }
 
-          //Reorder li from "value" attribute as angularjs create them sequentially (object:100, object:101, object:102, object:103, object:104 etc.)
-          var li = $ul.children("li");
-          li.detach().sort(function (a, b) {
-              return $(a).attr("value").localeCompare($(b).attr("value"));
+          //select the newly selected option and unselect previous one (if any)
+          if ($option.hasClass("selected")) {
+              methods._select($ul.parent(), $option);
+          }
+
+          //Re-order "li" in the same order than "options" in native "select".
+          var orderedLi = new Array();
+          $.each($this.closest("select").find("option"), function(i, opt) {
+              var li = $ul.find("li[value='" + $(opt).attr("value") + "']");
+              if (li.length > 0)
+                  orderedLi.push(li[0]);
           });
-          $ul.append(li);
+          $ul.empty().append(orderedLi);
       }
     },
     destroy: function($e) {
