@@ -170,7 +170,8 @@
         // Listen for new added options and update dropdown if needed
         $select.on("DOMNodeInserted", function(e) {
           var $this = $(e.target);
-          if (!$this.val().length) return;
+          //if (!$this.val().length) return;
+          if (!e.target.tagName === "OPTION") return; //This condition instead of the previous one prevent $ul to miss the empty "li "corresponding to the empty "option".
 
             //Need to do the imeout for angularjs otherwise the "value" attribute is not always bound at this time (could create a problem when rebinding an already bound list)
             setTimeout(function() {
