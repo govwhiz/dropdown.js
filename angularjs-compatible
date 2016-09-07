@@ -144,7 +144,8 @@
         $ul.on("click", "li:not(.dropdownjs-add)", function(e) {
           methods._select($dropdown, $(this));
           // trigger change event, if declared on the original selector
-          $select.change();
+          //$select.change();
+          $select.trigger('change');
         });
         $ul.on("click", "span.optgroup", function (e) {
             return false;
@@ -449,7 +450,8 @@
                 $option.html("&nbsp;");
             }
             // Set the value of the option
-            $option.attr("value", $this.val());
+            var attrValue = $this.val() != "" ? $this.val() : "&nbsp;"; //Trick for IE that set a value equals to "1" when the value is empty (instead of an empty string)
+            $option.attr("value", attrValue);
 
             // Will user be able to remove this option?
             if ($ul.data("select").attr("data-dynamic-opts")) {
@@ -494,7 +496,8 @@
                         });
                     }
                 } else {
-                    elem = $ul.find("li[value='" + $(item).attr("value") + "']");
+                    var attrValueToFind = $(item).attr("value") != "" ? $(item).attr("value") : "&nbsp;"; //Trick for IE that set a value equals to "1" when the value is empty (instead of an empty string)
+                    elem = $ul.find("li[value='" + attrValueToFind + "']");
                     if (elem && elem.length > 0)
                         orderedElems.push(elem[0]);
                 }
