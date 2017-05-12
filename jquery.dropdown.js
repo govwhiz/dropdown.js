@@ -68,13 +68,25 @@
         // Transfer the placeholder attribute
         $input.attr("placeholder", $select.attr("placeholder"));
 
-        // Loop trough options and transfer them to the dropdown menu
-        $select.find("option").each(function() {
-          // Cache $(this)
-          var $this = $(this);
-          methods._addOption($ul, $this);
+        // Loop trough options/optgroups and transfer them to the dropdown menu
+        var $items = $select.find("> optgroup, > option");
+        if ($items.length > 0) {
+            $items.each(function () {
+                var $this = $(this);
+                if ($this.is("optgroup")) {
+                    //add in the option group label
+                    methods._addOption($ul, $this);
+                    //loop through the list and add each option
+                    $this.find("option").each(function (index, item) {
+                        methods._addOption($ul, $(item));
+                    });
+                } else {
+                    //$this is "option"
+                    methods._addOption($ul, $this);
+                }
+            });
+        } 
 
-        });
 
         // If this select allows dynamic options add the widget
         if (dynamicOptions) {
@@ -103,12 +115,10 @@
         } else {
             var selectors = [], val = $select.val()
             for (var i in val) {
-              selectors.push(val[i]);
+              selectors.push('li[value=' + val[i] + ']')
             }
             if (selectors.length > 0) {
-              var $target = $dropdown.find(function() { return $.inArray($(this).data("value"), selectors) !== -1; });
-              $target.removeClass("selected");
-              methods._select($dropdown, $target);
+              methods._select($dropdown, $dropdown.find(selectors.join(',')));
             }
         }
 
@@ -134,7 +144,11 @@
         $ul.on("click", "li:not(.dropdownjs-add)", function(e) {
           methods._select($dropdown, $(this));
           // trigger change event, if declared on the original selector
-          $select.change();
+          //$select.change();
+          $select.trigger('change');
+        });
+        $ul.on("click", "span.optgroup", function (e) {
+            return false;
         });
         $ul.on("keydown", "li:not(.dropdownjs-add)", function(e) {
           if (e.which === 27) {
@@ -169,32 +183,77 @@
           });
         }
 
-        // Listen for new added options and update dropdown if needed
-        $select.on("DOMNodeInserted", function(e) {
-          var $this = $(e.target);
-          if (!$this.val().length) return;
 
-          methods._addOption($ul, $this);
-          $ul.find("li").not(".dropdownjs-add").attr("tabindex", 0);
+        var observer = new MutationObserver(function (mutations) {
+            mutations.forEach(function (mutation) {
 
+                if (mutation.type === "childList") {
+                    //Node added:  Listen for new added options/optgroup and update dropdown if needed
+                    if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+                        $(mutation.addedNodes).each(function (i, node) {
+                            //Need to do the timeout for angularjs otherwise the "value" attribute is not always bound at this time (could create a problem when rebinding an already bound list)
+                            setTimeout(function () {
+                                var $elem = $(node);
+                                if ($elem.is("optgroup")) {
+                                    //add in the option group label
+                                    methods._addOption($ul, $elem);
+                                    //loop through the list and add each option
+                                    $elem.find("option").each(function (index, item) {
+                                        methods._addOption($ul, $(item));
+                                    });
+                                } else {
+                                    methods._addOption($ul, $elem);
+                                    $ul.find("li").not(".dropdownjs-add").attr("tabindex", 0);
+                                }
+                            }, 0);
+                        });
+                    }
+
+                    //Node removed
+                    if (mutation.removedNodes && mutation.removedNodes.length > 0) {
+                        $(mutation.removedNodes).each(function (i, node) {
+                            var $elem = $(node);
+                            if ($elem.is("optgroup")) {
+                                $ul.find("span[label='" + $elem.attr("label") + "']").remove();
+                                $elem.find("option").each(function (index, item) {
+                                    $ul.find("li[value='" + $(item).attr("value") + "']").remove();
+                                });
+                            } else {
+                                var deletedValue = $elem.attr('value');
+                                $ul.find("li[value='" + deletedValue + "']").remove();
+                            }
+                            var $selected;
+
+                            setTimeout(function () {
+                                if ($select.find(":selected").length) {
+                                    $selected = $select.find(":selected").last();
+                                } else {
+                                    $selected = $select.find("option, li").first();
+                                }
+                                methods._select($dropdown, $selected);
+                            }, 100);
+                        });
+                    }
+
+
+                }
+            });
         });
 
-        $select.on("DOMNodeRemoved", function(e) {
-          var deletedValue = $(e.target).attr('value');
-          $ul.find("li").filter(function() { return $(this).data("value") === deletedValue; }).remove();
-          var $selected;
+        // Notify me of everything!
+        var observerConfig = {
+            //attributes: true,
+            childList: true,
+            //characterData: true,
+            //subtree: true
+        };
 
-          setTimeout(function () {
-            if ($select.find(":selected").length) {
-              $selected = $select.find(":selected").last();
-            }
-            else {
-              $selected = $select.find("option, li").first();
-            }
-            methods._select($dropdown, $selected);
-          }, 100);
+          // Node, config
+          // In this case we'll listen to all changes to $select and child nodes
+        if ($select && $select.length > 0)
+            observer.observe($select[0], observerConfig);
 
-        });
+
 
         // Update dropdown when using val, need to use .val("value").trigger("change");
         $select.on("change", function(e) {
@@ -210,15 +269,7 @@
             }
             methods._select($dropdown, $selected);
           } else {
-            var target = $select.find(":selected"),
-                values = $(this).val();
-            // Unselect all options
-            selectOptions.removeClass("selected");
-            // Select options
-            target.each(function () {
-                var selected = selectOptions.filter(function() { return $.inArray($(this).data("value"), values) !== -1; });
-                selected.addClass("selected");
-            });
+            methods._select($dropdown, $select.find(":selected"));
           }
         });
 
@@ -246,9 +297,9 @@
           // Decide if place the dropdown below or above the input
           if (height < 200 && coords.top > coords.bottom) {
             height = coords.top;
-            $ul.attr("placement", $("body").hasClass("rtl") ? "top-right" : "top-left");
+            $ul.attr("placement", "top-left");
           } else {
-            $ul.attr("placement", $("body").hasClass("rtl") ? "bottom-right" : "bottom-left");
+            $ul.attr("placement", "bottom-left");
           }
 
           $(this).next("ul").css("max-height", height - 20);
@@ -265,25 +316,46 @@
 
           // Close opened dropdowns
           $(".dropdownjs > ul > li").attr("tabindex", -1);
-            if ($(e.target).hasClass('disabled')) {
-              return;
-        }
           $input.removeClass("focus");
         });
       }
 
       if (options.autoinit) {
-        $(document).on("DOMNodeInserted", function(e) {
-          var $this = $(e.target);
-          if (!$this.is("select")) {
-            $this = $this.find('select');
-          }
-            $this.each(function() {
-                if ($(this).is(options.autoinit)) {
-                    initElement($(this));
-                }
-            });
-        });
+
+          var observer = new MutationObserver(function (mutations) {
+              mutations.forEach(function (mutation) {
+
+                  if (mutation.type === "childList") {
+                      //Node added:  Listen for new changes on node in body
+                      if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+                          $(mutation.addedNodes).each(function (i, node) {
+                              var $this = $(node);
+                              if (!$this.is("select")) {
+                                  $this = $this.find('select');
+                              }
+                              if ($this.is(options.autoinit)) {
+                                  $this.each(function () {
+                                      initElement($(this));
+                                  });
+                              }
+                          });
+                      }
+
+                  }
+              });
+          });
+
+          // Notify me of everything!
+          var observerConfig = {
+              //attributes: true,
+              childList: true,
+              //characterData: true,
+              subtree: true
+          };
+
+          // In this case we'll listen to all changes on body and child nodes
+          observer.observe(document.body, observerConfig);
+
       }
 
       // Loop trough elements
@@ -292,11 +364,10 @@
       });
     },
     select: function(target) {
-      var $target = $(this).find(function() { return $(this).data("value") === target; });
+      var $target = $(this).find("[value=\"" + target + "\"]");
       methods._select($(this), $target);
     },
     _select: function($dropdown, $target) {
-
       if ($target.is(".dropdownjs-add")) return;
 
       // Get dropdown's elements
@@ -314,8 +385,7 @@
         $target.toggleClass("selected");
         // Toggle selection of the clicked option in native select
         $target.each(function(){
-          var value = $(this).prop("tagName") === "OPTION" ? $(this).val() : $(this).data("value"),
-              $selected = $select.find("[value=\"" + value + "\"]");
+          var $selected = $select.find("[value=\"" + $(this).attr("value") + "\"]");
           $selected.prop("selected", $(this).hasClass("selected"));
         });
         // Add or remove the value from the input
@@ -330,26 +400,18 @@
 
       // Behavior for single select
       if (!multi) {
-        if ($target.hasClass("disabled")) {
-          return;
-        }
         // Unselect options except the one that will be selected
         if ($target.is("li")) {
             selectOptions.not($target).removeClass("selected");
         }
         // Select the selected option
         $target.addClass("selected");
+        // Set the value to the native select
+        $select.val($target.attr("value"));
+        //$select.find("option").prop('selected', false);
+        //$select.find("option[value='" + $target.attr("value") + "']").prop('selected', true);
         // Set the value to the input
         $input.val($target.text().trim());
-        var value = $target.prop("tagName") === "OPTION" ? $target.val() : $target.data("value");
-        // When val is set below on $select, it will fire change event,
-        // which ends up back here, make sure to not end up in an infinite loop.
-        // This is done last so text input is initialized on first load when condition is true.
-        if (value === $select.val()) {
-          return;
-        }
-        // Set the value to the native select
-        $select.val(value);
       }
 
       // This is used only if Material Design for Bootstrap is selected
@@ -361,55 +423,96 @@
         }
       }
 
-      // Call the callback
-      if (this.options.onSelected) {
-        this.options.onSelected($target.data("value"));
-      }
+       // Call the callback
+        if (this.options.onSelected) {
+            this.options.onSelected($target.attr("value"));
+        }
 
     },
-    _addOption: function($ul, $this) {
-      // Create the option
-      var $option = $("<li></li>");
+    _addOption: function ($ul, $this) {
+        var $option = undefined;
+        if ($this.is("optgroup")) {
+            // Create the optgroup
+            $option = $("<span class='optgroup' label='" + $this.attr("label") + "'>" + $this.attr("label") + "</span>");
+        } else {
+            // Create the option
+            $option = $("<li></li>");
 
-      // Style the option
-      $option.addClass(this.options.optionClass);
+            // Style the option
+            $option.addClass(this.options.optionClass);
 
-      // If the option has some text then transfer it
-      if ($this.text()) {
-        $option.text($this.text());
-      }
-      // Otherwise set the empty label and set it as an empty option
-      else {
-        $option.html("&nbsp;");
-      }
-      // Set the value of the option
-      $option.data("value", $this.val());
+            // If the option has some text then transfer it
+            if ($this.text()) {
+                $option.text($this.text());
+            }
+                // Otherwise set the empty label and set it as an empty option
+            else {
+                $option.html("&nbsp;");
+            }
+            // Set the value of the option
+            var attrValue = $this.val() != "" ? $this.val() : "&nbsp;"; //Trick for IE that set a value equals to "1" when the value is empty (instead of an empty string)
+            $option.attr("value", attrValue);
 
-      // Will user be able to remove this option?
-      if ($ul.data("select").attr("data-dynamic-opts")) {
-        $option.append("<span class=close></span>");
-        $option.find(".close").on("click", function() {
-          $option.remove();
-          $this.remove();
-        });
-      }
+            // Will user be able to remove this option?
+            if ($ul.data("select").attr("data-dynamic-opts")) {
+                $option.append("<span class=close></span>");
+                $option.find(".close").on("click", function () {
+                    $option.remove();
+                    $this.remove();
+                });
+            }
 
-      // Ss it selected?
-      if ($this.prop("selected")) {
-        $option.attr("selected", true);
-        $option.addClass("selected");
-      }
+            // Is it selected?
+            if ($this.prop("selected")) {
+                $option.attr("selected", true);
+                $option.addClass("selected");
+            }
+        }
 
-      if ($this.prop("disabled")) {
-        $option.addClass("disabled");
-      }
 
-      // Append option to our dropdown
-      if ($ul.find(".dropdownjs-add").length) {
-        $ul.find(".dropdownjs-add").before($option);
-      } else {
-        $ul.append($option);
-      }
+        // Append option to our dropdown
+        if ($ul.find(".dropdownjs-add").length) {
+            $ul.find(".dropdownjs-add").before($option);
+        } else {
+            $ul.append($option);
+
+            //select the newly selected option and unselect previous one (if any)
+            if ($option.hasClass("selected")) {
+                methods._select($ul.parent(), $option);
+            }
+
+            //Re-order "li" in the same order than "options" in native "select".
+            var orderedElems = new Array();
+            $.each($this.closest("select").find("> optgroup, > option"), function (i, item) {
+                var elem = undefined;
+                if ($(item).is("optgroup")) {
+                    elem = $ul.find("span[label='" + $(item).attr("label") + "']");
+                    if (elem && elem.length > 0) {
+                        orderedElems.push(elem[0]);
+                        $.each($(item).find("option"), function(j, subItem) {
+                            var subElem = $ul.find("li[value='" + $(subItem).attr("value") + "']");
+                            if (subElem && subElem.length > 0)
+                                orderedElems.push(subElem[0]);
+                        });
+                    }
+                } else {
+                    var attrValueToFind = $(item).attr("value") != "" ? $(item).attr("value") : "&nbsp;"; //Trick for IE that set a value equals to "1" when the value is empty (instead of an empty string)
+                    elem = $ul.find("li[value='" + attrValueToFind + "']");
+                    if (elem && elem.length > 0)
+                        orderedElems.push(elem[0]);
+                }
+
+            });
+            $ul.empty().append(orderedElems);
+
+            if ($.material && $.material.ripples) {
+                $(orderedElems).each(function (index, item) {
+                    if ($(item).is("li"))
+                        $.material.ripples($(item));
+                });
+            }
+        }
+
     },
     destroy: function($e) {
       $($e).show().removeAttr('data-dropdownjs').next('.dropdownjs').remove();
@@ -428,4 +531,3 @@
   };
 
 }));
-
